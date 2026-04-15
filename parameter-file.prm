@@ -1,0 +1,124 @@
+# Parameter file for step-35 with FSI capabilities and mesh generation options
+
+set Method_Form = rotational
+
+subsection Physical data
+  set initial_time = 0.
+  set final_time   = 0.1
+  set Reynolds     = 100.
+end
+
+subsection Time step data
+  set dt = 5e-4
+end
+
+subsection Space discretization
+  set n_of_refines       = 2
+  set pressure_fe_degree = 1
+  set mesh_filename      = ../nsbench2.inp
+end
+
+subsection Mesh generation
+  # Options: "file" (read from mesh file) or "channel" (generate channel geometry)
+  set Mesh generation type = file
+  
+  # Channel geometry parameters
+  set Channel length = 25.0
+  set Channel width  = 4.1
+  set Channel height = 1.0  # Only used for 3D
+  
+  # Initial refinement for channel mesh (before global refinement)
+  set Channel refinement = 0
+
+  # Anisotropic refinement: number of cells in each direction
+  # For 2D: set Channel cells X and Channel cells Y
+  # For 3D: also set Channel cells Z
+  set Channel cells X = 25     # More cells in x-direction (flow direction)
+  set Channel cells Y = 4      # Fewer cells in y-direction
+  set Channel cells Z = 1      # Only used for 3D
+end
+
+subsection Boundary conditions
+  # Boundary 1: left wall (x=0)
+  set Boundary 1 type = zero
+  set Boundary 1 velocity X = 1.0
+  set Boundary 1 velocity Y = 0.0
+  set Boundary 1 max velocity = 1.5
+
+  # Boundary 2: right wall (x=length)
+  set Boundary 2 type = outflow
+  set Boundary 2 velocity X = 0.0
+  set Boundary 2 velocity Y = 0.0
+  set Boundary 2 max velocity = 2.0
+
+  # Boundary 3: bottom wall (y=0)
+  set Boundary 3 type = zero
+  set Boundary 3 velocity X = 0.0
+  set Boundary 3 velocity Y = 0.0
+  set Boundary 3 max velocity = 1.5
+
+  # Boundary 4: top wall (y=width)
+  set Boundary 4 type = zero
+  set Boundary 4 velocity X = 0.0
+  set Boundary 4 velocity Y = 0.0
+  set Boundary 4 max velocity = 11.5
+end
+
+subsection Data solve velocity
+  set max_iterations = 1000
+  set eps            = 1e-12
+  set Krylov_size    = 30
+  set off_diagonals  = 60
+  set diag_strength  = 0.01
+  set update_prec    = 15
+end
+
+set verbose = true
+set output_interval = 5
+
+subsection Immersed solid
+  set Use Nitsche method    = true
+  set Nitsche beta          = 100.0
+  set Solid refinement      = 3
+  set Solid angular velocity = 6.2831853  # 2*pi rad/s
+  set Solid center          = 0.0, 0.0
+  set Solid radius          = 0.1
+  
+  # Additional parameters from step-35-ibm.cc
+  set Solid geometry type   = circle
+  set Solid width           = 0.5
+  set Solid height          = 0.3
+  set Motion type           = prescribed
+  set Amplitude X           = 0.0
+  set Amplitude Y           = 0.0
+  set Frequency             = 1.0
+  set Rotation speed        = 0.0
+  set Solid density         = 1.0
+  set Relaxation factor     = 1.0
+end
+
+subsection Initial conditions
+  # Options: "zero" (zero velocity), "constant" (constant velocity), "parabolic" (parabolic profile)
+  set Initial velocity type = parabolic
+  
+  # For constant velocity initialization
+  set Initial velocity X = 0.0
+  set Initial velocity Y = 0.0
+  
+  # For parabolic velocity initialization
+  set Initial max velocity = 1.5
+end
+
+subsection Sponge layer
+  # Enable/disable sponge layer damping at outlet
+  set Use sponge layer  = false
+  
+  # X-coordinate where sponge layer starts (typically a few units before outlet)
+  set Sponge x start    = 20.0
+  
+  # Maximum damping coefficient sigma_max
+  set Sponge strength   = 10.0
+  
+  # Order of damping profile: 1=linear, 2=quadratic, 3=cubic
+  set Sponge order      = 2
+end
