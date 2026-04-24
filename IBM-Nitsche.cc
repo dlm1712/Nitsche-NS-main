@@ -170,6 +170,8 @@ namespace Step35
       FromFile
     };
 
+    
+    
     // @sect4{SolidModelBase class}
     //
     // Abstract base class for solid constitutive models.
@@ -535,7 +537,7 @@ namespace Step35
                                  Tensor<1, dim>                    &vel,
                                  Tensor<1, dim>                    &angular_vel,
                                  const Tensor<1, dim>              &fluid_force,
-                                 const double                       fluid_torque,
+                                 const Tensor<1, dim>              &fluid_torque,
                                  const double                       dt,
                                  const double                       time) = 0;
 
@@ -552,7 +554,7 @@ namespace Step35
                          Tensor<1, dim> & /*vel*/,
                          Tensor<1, dim> & /*angular_vel*/,
                          const Tensor<1, dim> & /*fluid_force*/,
-                         const double /*fluid_torque*/,
+                         const Tensor<1, dim> &/*fluid_torque*/,
                          const double /*dt*/,
                          const double /*time*/) override
       {
@@ -577,7 +579,7 @@ namespace Step35
                          Tensor<1, dim>                    &vel,
                          Tensor<1, dim>                    &angular_vel,
                          const Tensor<1, dim>              &fluid_force,
-                         const double                       fluid_torque,
+                         const Tensor<1, dim>              &fluid_torque,
                          const double                       dt,
                          const double                       time) override;
 
@@ -595,6 +597,7 @@ namespace Step35
       // Motion parameters (amplitude, frequency, etc.)
       double amplitude_x;
       double amplitude_y;
+      double amplitude_z;
       double frequency;
       double rotation_speed;
 
@@ -607,6 +610,7 @@ namespace Step35
     PrescribedMotionModel<dim>::PrescribedMotionModel()
       : amplitude_x(0.0)
       , amplitude_y(0.0)
+      , amplitude_z(0.0)
       , frequency(1.0)
       , rotation_speed(0.0)
     {}
@@ -620,6 +624,8 @@ namespace Step35
                           "Translation amplitude in X");
         prm.declare_entry("Amplitude Y", "0.0", Patterns::Double(),
                           "Translation amplitude in Y");
+        prm.declare_entry("Amplitude Z", "0.0", Patterns::Double(),
+                          "Translation amplitude in Z");
         prm.declare_entry("Frequency", "1.0", Patterns::Double(0.0),
                           "Motion frequency");
         prm.declare_entry("Rotation speed", "0.0", Patterns::Double(),
@@ -635,6 +641,7 @@ namespace Step35
       {
         amplitude_x    = prm.get_double("Amplitude X");
         amplitude_y    = prm.get_double("Amplitude Y");
+        amplitude_z    = prm.get_double("Amplitude Z");
         frequency      = prm.get_double("Frequency");
         rotation_speed = prm.get_double("Rotation speed");
       }
@@ -657,18 +664,23 @@ namespace Step35
       Tensor<1, dim>                    &vel,
       Tensor<1, dim>                    & /*angular_vel*/,
       const Tensor<1, dim>              & /*fluid_force*/,
-      const double /*fluid_torque*/,
+      const Tensor<1, dim>              & /*fluid_torque*/,
       const double /*dt*/,
       const double time)
     {
       const double pi        = numbers::PI;
       const double new_angle = rotation_speed * time;
+      const double angle = rotation_speed * time;
+      const double cos_a = std::cos(angle);
+      const double sin_a = std::sin(angle);
 
       // Compute new center position
       Point<dim> new_center = initial_center;
       new_center[0] += amplitude_x * std::sin(2.0 * pi * frequency * time);
       if (dim > 1)
         new_center[1] += amplitude_y * std::cos(2.0 * pi * frequency * time);
+      if (dim > 2)
+        new_center[2] += amplitude_z * std::sin(2.0 * pi * frequency * time);
 
       // Update velocity
       vel[0] = amplitude_x * 2.0 * pi * frequency *
@@ -676,6 +688,9 @@ namespace Step35
       if (dim > 1)
         vel[1] = -amplitude_y * 2.0 * pi * frequency *
                  std::sin(2.0 * pi * frequency * time);
+      if (dim > 2)
+        vel[2] = amplitude_z * 2.0 * pi * frequency *
+                 std::cos(2.0 * pi * frequency * time);
 
       // Update all Lagrangian points
       for (unsigned int i = 0; i < points.size(); ++i)
@@ -684,23 +699,26 @@ namespace Step35
           for (unsigned int d = 0; d < dim; ++d)
             rel[d] = initial_positions[i][d] - initial_center[d];
 
-          // Apply rotation (2D)
-          Point<dim> rotated;
-          if (dim >= 2)
+          Point<dim> rotated_rel;
+          
+          if (dim == 2)
             {
-              rotated[0] =
-                rel[0] * std::cos(new_angle) - rel[1] * std::sin(new_angle);
-              rotated[1] =
-                rel[0] * std::sin(new_angle) + rel[1] * std::cos(new_angle);
+              // 2D Rotation around Z
+              rotated_rel[0] = rel[0] * cos_a - rel[1] * sin_a;
+              rotated_rel[1] = rel[0] * sin_a + rel[1] * cos_a;
+            }
+          else if (dim == 3)
+            {
+              // 3D Rotation: Currently implementing simple rotation around Z-axis
+              // For general 3D rotation, quaternions or rotation matrices around arbitrary axes are needed.
+              rotated_rel[0] = rel[0] * cos_a - rel[1] * sin_a;
+              rotated_rel[1] = rel[0] * sin_a + rel[1] * cos_a;
+              rotated_rel[2] = rel[2]; // Z remains unchanged in Z-axis rotation
             }
 
           for (unsigned int d = 0; d < dim; ++d)
-            points[i].position[d] = new_center[d] + rotated[d];
-
-          // Set point velocity
-          points[i].velocity = vel;
+            points[i].position[d] = new_center[d] + rotated_rel[d];
         }
-
       center = new_center;
     }
 
@@ -716,7 +734,7 @@ namespace Step35
                          Tensor<1, dim>                    &vel,
                          Tensor<1, dim>                    &angular_vel,
                          const Tensor<1, dim>              &fluid_force,
-                         const double                       fluid_torque,
+                         const Tensor<1, dim>              &fluid_torque,
                          const double                       dt,
                          const double                       time) override;
 
@@ -724,15 +742,23 @@ namespace Step35
       {
         return MotionType::FSICoupled;
       }
+      void set_initial_state(
+        const Point<dim>              &center,
+        const std::vector<Point<dim>> &positions) override;
 
       double mass;
-      double moment_of_inertia;
+      double moment_of_inertia;       // 标量，用于 2D
+      Tensor<2, dim> inertia_tensor;  // 张量，用于 3D
+      Tensor<2, dim> inverse_moment_of_inertia; // Inverse of moment of inertia
       bool   couple_translation_x;
       bool   couple_translation_y;
+      bool   couple_translation_z;
       bool   couple_rotation;
 
       Tensor<1, dim> external_force;
-      double         external_torque;
+      double external_torque_scalar;   // 标量，用于 2D
+      Tensor<1, dim> external_torque;
+      std::array<double, 4> orientation; // Orientation of the rigid body
 
     private:
       Point<dim>              initial_center;
@@ -743,11 +769,34 @@ namespace Step35
     FSICoupledMotionModel<dim>::FSICoupledMotionModel()
       : mass(1.0)
       , moment_of_inertia(1.0)
+      , inertia_tensor(unit_symmetric_tensor<dim>())
+      , inverse_moment_of_inertia(unit_symmetric_tensor<dim>())
       , couple_translation_x(true)
       , couple_translation_y(true)
+      , couple_translation_z(true)
       , couple_rotation(false)
+      , orientation({1.0, 0.0, 0.0, 0.0}) // 初始化四元数
+      , external_force(0.0)
       , external_torque(0.0)
+      , external_torque_scalar(0.0)
     {}
+
+    template <int dim>
+    void FSICoupledMotionModel<dim>::set_initial_state(
+      const Point<dim>              &center,
+      const std::vector<Point<dim>> &positions)
+    {
+      initial_center = center;
+      initial_positions.resize(positions.size());
+      for (unsigned int i = 0; i < positions.size(); ++i)
+        {
+          for (unsigned int d = 0; d < dim; ++d)
+            {
+              // Store local coordinates relative to center
+              initial_positions[i][d] = positions[i][d] - center[d];
+            }
+        }
+    }
 
     template <int dim>
     void FSICoupledMotionModel<dim>::update_motion(
@@ -756,40 +805,195 @@ namespace Step35
       Tensor<1, dim>                    &vel,
       Tensor<1, dim>                    &angular_vel,
       const Tensor<1, dim>              &fluid_force,
-      const double                       fluid_torque,
+      const Tensor<1, dim>              &fluid_torque,
       const double                       dt,
       const double /*time*/)
     {
-      // Compute acceleration from forces: a = F/m
+      // 平动更新 (Translation)
       Tensor<1, dim> acceleration;
       for (unsigned int d = 0; d < dim; ++d)
         acceleration[d] =
           (fluid_force[d] + external_force[d]) / mass;
 
-      // Update velocity
+      
       if (couple_translation_x)
         vel[0] += acceleration[0] * dt;
       if (dim > 1 && couple_translation_y)
         vel[1] += acceleration[1] * dt;
+      if (dim > 2 && couple_translation_z) vel[2] += acceleration[2] * dt;
+       center += vel * dt;
 
-      // Update angular velocity
+      // 转动更新 (Rotation)
       if (couple_rotation)
         {
-          double angular_accel =
-            (fluid_torque + external_torque) / moment_of_inertia;
-          angular_vel[0] += angular_accel * dt; // Using [0] for 2D rotation
+           if (dim == 2)
+        {
+          // 2D 情况：转动惯量和力矩都是标量
+          double total_torque = fluid_torque[0] + external_torque_scalar;
+          
+          // 角加速度: α = τ / I
+          double angular_accel = total_torque / moment_of_inertia;
+          
+          // 更新角速度（仅 z 分量）
+          angular_vel[0] += angular_accel * dt;
+          
+          // 更新旋转角度（存储在 orientation[0]）
+          orientation[0] += angular_vel[0] * dt;
+        }
+          
+          else if (dim == 3)
+            {
+              // --- 3D 修正开始 ---
+              
+              // A. 计算总力矩
+              Tensor<1, 3> total_torque;
+              for (unsigned int d=0; d<3; ++d)
+                  total_torque[d] = fluid_torque[d] + external_torque[d];
+
+              // B. 计算角加速度 alpha = I_inv * torque
+              // 
+              // 如果需要高精度，需添加陀螺项
+               Tensor<1, 3> I_omega;
+              for (unsigned int i = 0; i < 3; ++i)
+                {
+                  I_omega[i] = 0.0;
+                  for (unsigned int j = 0; j < 3; ++j)
+                    {
+                      I_omega[i] += inertia_tensor[i][j] * angular_vel[j];
+                    }
+                }
+
+              // C. 更新角速度
+              Tensor<1, 3> gyroscopic_term;
+              gyroscopic_term[0] = angular_vel[1] * I_omega[2] - angular_vel[2] * I_omega[1];
+              gyroscopic_term[1] = angular_vel[2] * I_omega[0] - angular_vel[0] * I_omega[2];
+              gyroscopic_term[2] = angular_vel[0] * I_omega[1] - angular_vel[1] * I_omega[0];
+
+              // Angular Acceleration: alpha = I_inv * (tau_total - tau_gyro)
+              Tensor<1, 3> effective_torque;
+              for (unsigned int d = 0; d < 3; ++d)
+                effective_torque[d] = total_torque[d] - gyroscopic_term[d];
+
+              Tensor<1, 3> angular_accel;
+              for (unsigned int i = 0; i < 3; ++i)
+                {
+                  angular_accel[i] = 0.0;
+                  for (unsigned int j = 0; j < 3; ++j)
+                    {
+                      angular_accel[i] += inverse_moment_of_inertia[i][j] * effective_torque[j];
+                    }
+                }
+
+              // D. Update Angular Velocity
+              angular_vel += angular_accel * dt;
+              // D. 使用四元数更新姿态
+              // orientation = [w, x, y, z]
+              double w = orientation[0];
+              double x = orientation[1];
+              double y = orientation[2];
+              double z = orientation[3];
+              
+              double wx = angular_vel[0];
+              double wy = angular_vel[1];
+              double wz = angular_vel[2];
+
+              // 四元数导数: q_dot = 0.5 * q * omega_quat
+              std::array<double, 4> q_dot;
+              q_dot[0] = 0.5 * (-wx * x - wy * y - wz * z);
+              q_dot[1] = 0.5 * ( wx * w + wz * y - wy * z);
+              q_dot[2] = 0.5 * ( wy * w - wz * x + wx * z);
+              q_dot[3] = 0.5 * ( wz * w + wy * x - wx * y);
+
+              // 积分四元数
+              for (unsigned int i = 0; i < 4; ++i)
+                  orientation[i] += q_dot[i] * dt;
+
+              // 归一化四元数 (防止数值漂移)
+              double norm = std::sqrt(orientation[0]*orientation[0] + 
+                                      orientation[1]*orientation[1] + 
+                                      orientation[2]*orientation[2] + 
+                                      orientation[3]*orientation[3]);
+              
+              if (norm > 1e-10) {
+                  for (unsigned int i = 0; i < 4; ++i)
+                      orientation[i] /= norm;
+              }
+              else
+                {
+                  // Reset to identity if numerical collapse occurs
+                  orientation = {1.0, 0.0, 0.0, 0.0};
+                }
+              // --- 3D 修正结束 ---
+            }
+        
         }
 
-      // Update center position
-      for (unsigned int d = 0; d < dim; ++d)
-        center[d] += vel[d] * dt;
-
-      // Update all Lagrangian point positions
-      for (auto &point : points)
+      // 3. Update Lagrangian Points Positions and Velocities
+        for (unsigned int i = 0; i < points.size(); ++i)
         {
+          // Get local reference vector
+          Point<dim> r_local;
           for (unsigned int d = 0; d < dim; ++d)
-            point.position[d] += vel[d] * dt;
-          point.velocity = vel;
+            r_local[d] = initial_positions[i][d];
+
+          Point<dim> rotated_r;
+
+          if (dim == 2)
+            {
+              double angle = orientation[0];
+              double cos_a = std::cos(angle);
+              double sin_a = std::sin(angle);
+              
+              rotated_r[0] = r_local[0] * cos_a - r_local[1] * sin_a;
+              rotated_r[1] = r_local[0] * sin_a + r_local[1] * cos_a;
+            }
+          else if (dim == 3)
+            {
+              // Rotate using Quaternion
+              double qw = orientation[0];
+              double qx = orientation[1];
+              double qy = orientation[2];
+              double qz = orientation[3];
+              
+              double rx = r_local[0];
+              double ry = r_local[1];
+              double rz = r_local[2];
+              
+              // Standard Quaternion Rotation Formula
+              rotated_r[0] = (qw*qw + qx*qx - qy*qy - qz*qz) * rx +
+                             2.0 * (qx*qy - qw*qz) * ry +
+                             2.0 * (qx*qz + qw*qy) * rz;
+                             
+              rotated_r[1] = 2.0 * (qx*qy + qw*qz) * rx +
+                             (qw*qw - qx*qx + qy*qy - qz*qz) * ry +
+                             2.0 * (qy*qz - qw*qx) * rz;
+                             
+              rotated_r[2] = 2.0 * (qx*qz - qw*qy) * rx +
+                             2.0 * (qy*qz + qw*qx) * ry +
+                             (qw*qw - qx*qx - qy*qy + qz*qz) * rz;
+            }
+
+          // Update Position
+          for (unsigned int d = 0; d < dim; ++d)
+            points[i].position[d] = center[d] + rotated_r[d];
+
+          // Update Velocity: v = v_cm + omega x r_rotated
+          Tensor<1, dim> point_vel = vel;
+          
+          if (dim == 2)
+            {
+              double omega = angular_vel[0];
+              point_vel[0] += -omega * rotated_r[1];
+              point_vel[1] +=  omega * rotated_r[0];
+            }
+          else if (dim == 3)
+            {
+              point_vel[0] += angular_vel[1] * rotated_r[2] - angular_vel[2] * rotated_r[1];
+              point_vel[1] += angular_vel[2] * rotated_r[0] - angular_vel[0] * rotated_r[2];
+              point_vel[2] += angular_vel[0] * rotated_r[1] - angular_vel[1] * rotated_r[0];
+            }
+            
+          points[i].velocity = point_vel;
         }
     }
 
@@ -944,6 +1148,116 @@ namespace Step35
       return points;
     }
 
+    template <int dim>
+    class FileGeometry : public GeometryBase<dim>
+    {
+    public:
+      FileGeometry(const std::string &filename)
+        : filename(filename)
+      {}
+
+      std::vector<LagrangianPoint<dim>>
+      generate_points(const unsigned int /*n_points*/, // Ignored, read from file
+                      const Point<dim>  &/*center*/,   // Ignored, coordinates are absolute or relative
+                      const double       scale = 1.0) const override;
+
+      GeometryType get_type() const override
+      {
+        return GeometryType::FromFile;
+      }
+
+    private:
+      std::string filename;
+    };
+
+    template <int dim>
+    std::vector<LagrangianPoint<dim>>
+    FileGeometry<dim>::generate_points(const unsigned int /*n_points*/,
+                                       const Point<dim>  &/*center*/,
+                                       const double       scale) const
+    {
+      std::vector<LagrangianPoint<dim>> points;
+      std::ifstream infile(filename);
+      
+      if (!infile.is_open())
+        {
+          AssertThrow(false, ExcMessage("Could not open solid geometry file: " + filename));
+        }
+
+      std::string line;
+      unsigned int id = 0;
+      
+      // Assume file format: x y [z] per line. Skip comments starting with #
+      while (std::getline(infile, line))
+        {
+          if (line.empty() || line[0] == '#')
+            continue;
+
+          std::istringstream iss(line);
+          LagrangianPoint<dim> pt;
+          
+          // Read coordinates based on dimension
+          for (unsigned int d = 0; d < dim; ++d)
+            {
+              if (!(iss >> pt.position[d]))
+                {
+                  AssertThrow(false, ExcMessage("Invalid format in solid geometry file at point " + std::to_string(id)));
+                }
+              pt.position[d] *= scale; // Apply scale if needed
+            }
+            
+          // If dim==2 and file has 3 columns, ignore the third or handle error depending on strictness
+          // For robustness, we just read 'dim' values.
+
+          pt.reference_position = pt.position;
+          pt.arc_length         = 0.0; // Will be computed later or approximated
+          pt.id                 = id++;
+          pt.mass               = 0.0;
+          
+          points.push_back(pt);
+        }
+        
+      infile.close();
+      
+      if (points.empty())
+        {
+           AssertThrow(false, ExcMessage("No points read from solid geometry file: " + filename));
+        }
+
+      // Optional: Compute arc_length if needed for weight calculation
+      // For simple IBM, uniform weight might be sufficient, or compute average spacing
+      // 这里使用简化的 Voronoi 近似：每个点的面积 ≈ (平均邻居距离)^2 (3D) 或 ^1 (2D)
+       const unsigned int n_pts = points.size();
+      std::vector<double> min_dist(n_pts, 1e10);
+
+      // 计算每个点到其最近邻居的距离
+      for (unsigned int i = 0; i < n_pts; ++i) {
+        for (unsigned int j = i + 1; j < n_pts; ++j) {
+          double dist = points[i].position.distance(points[j].position);
+          if (dist < min_dist[i]) min_dist[i] = dist;
+          if (dist < min_dist[j]) min_dist[j] = dist;
+        }
+      }
+
+      for (unsigned int i = 0; i < n_pts; ++i) {
+        // 避免除以零或极小值
+        if (min_dist[i] > 1e-14) {
+            if (dim == 2) {
+                // 2D: arc_length 代表长度元素 ds
+                points[i].arc_length = min_dist[i]; 
+            } else if (dim == 3) {
+                // 3D: arc_length 在这里被复用为代表面积元素 dA
+                // 粗略估计：每个点占据一个边长为 min_dist 的正方形区域
+                points[i].arc_length = min_dist[i] * min_dist[i]; 
+            }
+        } else {
+            points[i].arc_length = 0.0;
+        }
+      }
+
+
+      return points;
+    }
     // @sect4{ImmersedSolid class}
     //
     // Main class representing an immersed solid body.
@@ -962,7 +1276,7 @@ namespace Step35
       void set_motion_model(std::unique_ptr<MotionModelBase<dim>> model);
 
       void update(const Tensor<1, dim> &fluid_force,
-                  const double          fluid_torque,
+                  const double          fluid_torque_scalar,
                   const double          dt,
                   const double          time);
 
@@ -981,7 +1295,7 @@ namespace Step35
       void precompute_weights(const double h);
 
       Tensor<1, dim> compute_total_force() const;
-      double         compute_total_torque() const;
+      Tensor<1, dim> compute_total_torque() const;
 
       void output_boundary(const std::string &filename) const;
 
@@ -1007,6 +1321,54 @@ namespace Step35
 
         mass_solver.initialize(mass_matrix);
       }
+      void initialize_inertia_properties()
+  {
+    if (dim == 2)
+      {
+        // 2D情况：计算标量转动惯量
+        moment_of_inertia = 0.0;
+        for (const auto &point : lagrangian_points)
+          {
+            Point<dim> r;
+            for (unsigned int d = 0; d < dim; ++d)
+              r[d] = point.position[d] - center_of_mass[d];
+            
+            double r_squared = r[0] * r[0] + r[1] * r[1];
+            moment_of_inertia += point.mass * r_squared;
+          }
+      }
+    else if (dim == 3)
+      {
+        // 3D情况：计算转动惯量张量
+        inertia_tensor = 0.0;
+        for (const auto &point : lagrangian_points)
+          {
+            Point<dim> r;
+            for (unsigned int d = 0; d < dim; ++d)
+              r[d] = point.position[d] - center_of_mass[d];
+            
+            double r_squared = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+            
+            // 对角元素
+            inertia_tensor[0][0] += point.mass * (r_squared - r[0] * r[0]);
+            inertia_tensor[1][1] += point.mass * (r_squared - r[1] * r[1]);
+            inertia_tensor[2][2] += point.mass * (r_squared - r[2] * r[2]);
+            
+            // 非对角元素
+            inertia_tensor[0][1] -= point.mass * r[0] * r[1];
+            inertia_tensor[0][2] -= point.mass * r[0] * r[2];
+            inertia_tensor[1][2] -= point.mass * r[1] * r[2];
+            
+            // 对称元素
+            inertia_tensor[1][0] = inertia_tensor[0][1];
+            inertia_tensor[2][0] = inertia_tensor[0][2];
+            inertia_tensor[2][1] = inertia_tensor[1][2];
+          }
+        
+        // 计算逆矩阵
+        inverse_inertia_tensor = invert(inertia_tensor);
+      }
+  }
 
       // Member variables
       unsigned int                       id;
@@ -1021,6 +1383,7 @@ namespace Step35
 
       double mass;
       double moment_of_inertia;
+      Tensor<2, dim> inertia_tensor;
       double density;
 
       std::unique_ptr<SolidModelBase<dim>>  solid_model;
@@ -1060,6 +1423,8 @@ namespace Step35
       initial_positions.resize(lagrangian_points.size());
       for (unsigned int i = 0; i < lagrangian_points.size(); ++i)
         initial_positions[i] = lagrangian_points[i].position;
+         // 计算转动惯量
+        initialize_inertia_properties();
 
       // Set up prescribed motion if applicable
       if (motion_model)
@@ -1285,19 +1650,29 @@ namespace Step35
 
     template <int dim>
     void ImmersedSolid<dim>::update(const Tensor<1, dim> &fluid_force,
-                                    const double          fluid_torque,
+                                
+                                    const double          fluid_torque_scalar,
                                     const double          dt,
                                     const double          time)
     {
       if (motion_model)
-        motion_model->update_motion(lagrangian_points,
-                                    center_of_mass,
-                                    velocity,
-                                    angular_velocity,
-                                    fluid_force,
-                                    fluid_torque,
-                                    dt,
-                                    time);
+     {
+      // 为2D情况准备力矩向量
+      Tensor<1, dim> fluid_torque;
+      if (dim == 2)
+        fluid_torque[0] = fluid_torque_scalar;
+      else
+        fluid_torque = Tensor<1, dim>(); // 3D情况在motion_model内部处理
+        
+      motion_model->update_motion(lagrangian_points,
+                                  center_of_mass,
+                                  velocity,
+                                  angular_velocity,
+                                  fluid_force,
+                                  fluid_torque,
+                                  dt,
+                                  time);
+     }
     }
 
     template <int dim>
@@ -1309,23 +1684,46 @@ namespace Step35
       return total_force;
     }
 
-    template <int dim>
-    double ImmersedSolid<dim>::compute_total_torque() const
+     template <int dim>
+Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
+{
+  if (dim == 2)
     {
-      double total_torque = 0.0;
+      // 2D情况：返回标量力矩（z分量）
+      double total_torque_z = 0.0;
       for (const auto &point : lagrangian_points)
         {
           Point<dim> r;
           for (unsigned int d = 0; d < dim; ++d)
             r[d] = point.position[d] - center_of_mass[d];
-
-          // 2D torque: r x F = r_x * F_y - r_y * F_x
-          if (dim >= 2)
-            total_torque +=
-              r[0] * point.ibm_force[1] - r[1] * point.ibm_force[0];
+          
+          // 2D力矩: τ = r × F (只有z分量)
+          total_torque_z += r[0] * point.ibm_force[1] - r[1] * point.ibm_force[0];
+        }
+      // 返回仅包含z分量的向量
+      Tensor<1, dim> torque;
+      torque[0] = total_torque_z;
+      return torque;
+    }
+  else if (dim == 3)
+    {
+      // 3D情况：返回完整力矩向量
+      Tensor<1, dim> total_torque;
+      for (const auto &point : lagrangian_points)
+        {
+          Point<dim> r;
+          for (unsigned int d = 0; d < dim; ++d)
+            r[d] = point.position[d] - center_of_mass[d];
+          
+          // 3D力矩: τ = r × F
+          total_torque[0] += r[1] * point.ibm_force[2] - r[2] * point.ibm_force[1];
+          total_torque[1] += r[2] * point.ibm_force[0] - r[0] * point.ibm_force[2];
+          total_torque[2] += r[0] * point.ibm_force[1] - r[1] * point.ibm_force[0];
         }
       return total_torque;
     }
+}
+
 
     template <int dim>
     void ImmersedSolid<dim>::output_boundary(const std::string &filename) const
@@ -1403,8 +1801,9 @@ namespace Step35
       for (auto &solid : solids)
         {
           Tensor<1, dim> fluid_force = solid->compute_total_force();
-          double         fluid_torque = solid->compute_total_torque();
-          solid->update(fluid_force, fluid_torque, dt, time);
+          Tensor<1, dim> fluid_torque = solid->compute_total_torque();
+          double fluid_torque_scalar = (dim == 2) ? fluid_torque[0] : 0.0;
+          solid->update(fluid_force, fluid_torque_scalar, dt, time);
         }
     }
 
@@ -1484,6 +1883,7 @@ namespace Step35
       void read_data(const std::string &filename);
 
       Method form;
+      unsigned int dimension;
 
       double dt;
       double initial_time;
@@ -1524,10 +1924,11 @@ namespace Step35
     
     // Common FSI parameters
     std::string  solid_geometry_type;  // "circle" or "rectangle"
+    std::string  solid_point_filename; // Solid point filename
     double       solid_radius;         // Circle radius
     double       solid_width;          // Rectangle width
     double       solid_height;         // Rectangle height
-    Point<2>     solid_center;         // Solid center position
+    Point<3>     solid_center;         // Solid center position
     unsigned int solid_n_points;       // Number of Lagrangian points
     std::string  solid_motion_type;    // "static", "prescribed", "fsi_coupled"
     double       solid_amplitude_x;    // Prescribed motion amplitude X
@@ -1594,6 +1995,7 @@ namespace Step35
     // step-29.
     Data_Storage::Data_Storage()
       : form(Method::rotational)
+      , dimension(2)
       , dt(5e-4)
       , initial_time(0.)
       , final_time(1.)
@@ -1620,10 +2022,11 @@ namespace Step35
       , channel_cells_z(1)
       , fsi_method("off")
       , solid_geometry_type("circle")
+      , solid_point_filename("mosquito.dat")
       , solid_radius(0.05)
       , solid_width(0.1)
       , solid_height(0.05)
-      , solid_center(Point<2>(0.2, 0.2))
+      , solid_center(dim == 2 ? Point<3>(0.2, 0.2, 0.0) : Point<3>(0.2, 0.2, 0.2))
       , solid_n_points(64)
       , solid_motion_type("static")
       , solid_amplitude_x(0.0)
@@ -1672,6 +2075,7 @@ namespace Step35
                         Patterns::Selection("rotational|standard"),
                         " Used to select the type of method that we are going "
                         "to use. ");
+      prm.declare_entry("Dimension", "2", Patterns::Integer(2,3), "Spatial dimension (2 or 3)");
       prm.enter_subsection("Physical data");
       {
         prm.declare_entry("initial_time",
@@ -1969,8 +2373,10 @@ namespace Step35
       {
         prm.declare_entry("Geometry type",
                           "circle",
-                          Patterns::Selection("circle|rectangle"),
+                          Patterns::Selection("circle|rectangle|from_file"),
                           "Type of immersed solid geometry");
+        prm.declare_entry("Point file", "", Patterns::FileName(),
+                    "File containing Lagrangian surface points (x y [z] per line)");
         prm.declare_entry("Radius",
                           "0.05",
                           Patterns::Double(0.),
@@ -1991,6 +2397,10 @@ namespace Step35
                           "0.2",
                           Patterns::Double(),
                           "Y coordinate of solid center");
+        prm.declare_entry("Center Z", 
+                          "0.2", 
+                          Patterns::Double(), 
+                          "Z coordinate of solid center (3D only)");
         prm.declare_entry("Number of Lagrangian points",
                           "64",
                           Patterns::Integer(4),
@@ -2007,6 +2417,7 @@ namespace Step35
                           "0.0",
                           Patterns::Double(),
                           "Prescribed motion amplitude in Y");
+        prm.declare_entry("Amplitude Z", "0.0", Patterns::Double(), "Prescribed motion amplitude in Z");
         prm.declare_entry("Frequency",
                           "1.0",
                           Patterns::Double(0.),
@@ -2046,7 +2457,7 @@ namespace Step35
       AssertThrow(file, ExcFileNotOpen(filename));
 
       prm.parse_input(file);
-
+      dimension = prm.get_integer("Dimension");
       if (prm.get("Method_Form") == "rotational")
         form = Method::rotational;
       else
@@ -2181,6 +2592,8 @@ namespace Step35
         solid_height           = prm.get_double("Height");
         solid_center[0]        = prm.get_double("Center X");
         solid_center[1]        = prm.get_double("Center Y");
+        if (dim == 3)
+        solid_center[2] = prm.get_double("Center Z");
         solid_n_points         = prm.get_integer("Number of Lagrangian points");
         solid_motion_type      = prm.get("Motion type");
         solid_amplitude_x      = prm.get_double("Amplitude X");
@@ -4012,6 +4425,8 @@ namespace Step35
     else if (ibm_data.solid_geometry_type == "rectangle")
       geometry = std::make_unique<IBM::RectangleGeometry<dim>>(
         ibm_data.solid_width, ibm_data.solid_height);
+    else if (ibm_data.solid_geometry_type == "file")
+      geometry = std::make_unique<IBM::FileGeometry<dim>>(ibm_data.solid_point_filename);
     else
       geometry = std::make_unique<IBM::CircleGeometry<dim>>(ibm_data.solid_radius);
 
@@ -4020,7 +4435,7 @@ namespace Step35
     center[0] = ibm_data.solid_center[0];
     if (dim > 1)
       center[1] = ibm_data.solid_center[1];
-
+    if (dim > 2) center[2] = ibm_data.solid_center[2];
     solid->initialize(*geometry, center, ibm_data.solid_n_points);
 
     // Create and set solid model (rigid body with direct forcing)
@@ -4056,7 +4471,12 @@ namespace Step35
         auto fsi = std::make_unique<IBM::FSICoupledMotionModel<dim>>();
         fsi->couple_translation_x = true;
         fsi->couple_translation_y = true;
+        if (dim == 3) fsi->couple_translation_z = true; // 显式开启 Z
         fsi->couple_rotation = false;
+        std::vector<Point<dim>> init_pos;
+        for (const auto &pt : solid->lagrangian_points)
+          init_pos.push_back(pt.position);
+        fsi->set_initial_state(center, init_pos);
         motion_model = std::move(fsi);
       }
     else
@@ -4458,31 +4878,51 @@ int main(int argc, char *argv[])
       deallog.depth_console(data.verbose ? 2 : 0);
 
       // Select solver based on fsi_method parameter
-      if (data.fsi_method == "ibm")
+       if (data.dimension == 2)
         {
-          std::cout << "Running with Immersed Boundary Method enabled"
-                    << std::endl;
-          NavierStokesIBM<2> test(data);
-          test.run(data.verbose, data.output_interval);
+          if (data.fsi_method == "ibm")
+            {
+              std::cout << "Running 2D with Immersed Boundary Method enabled" << std::endl;
+              NavierStokesIBM<2> test(data);
+              test.run(data.verbose, data.output_interval);
+            }
+          else if (data.fsi_method == "nitsche")
+            {
+              std::cout << "Running 2D with Nitsche method enabled" << std::endl;
+              NavierStokesProjection<2> test(data);
+              test.run(data.verbose, data.output_interval);
+            }
+          else
+            {
+              std::cout << "Running 2D pure fluid solver (no FSI)" << std::endl;
+              NavierStokesProjection<2> test(data);
+              test.run(data.verbose, data.output_interval);
+            }
         }
-      else if (data.fsi_method == "nitsche")
+      else if (data.dimension == 3)
         {
-          std::cout << "Running with Nitsche method enabled" << std::endl;
-          std::cout << "  Solid center: (" << data.solid_center[0] 
-                    << ", " << data.solid_center[1] << ")" << std::endl;
-          std::cout << "  Solid radius: " << data.solid_radius << std::endl;
-          std::cout << "  Rotation speed: " << data.solid_rotation_speed 
-                    << " rad/s" << std::endl;
-          std::cout << "  Nitsche beta: " << data.nitsche_beta << std::endl;
-          
-          NavierStokesProjection<2> test(data);
-          test.run(data.verbose, data.output_interval);
+          if (data.fsi_method == "ibm")
+            {
+              std::cout << "Running 3D with Immersed Boundary Method enabled" << std::endl;
+              NavierStokesIBM<3> test(data);
+              test.run(data.verbose, data.output_interval);
+            }
+          else if (data.fsi_method == "nitsche")
+            {
+              std::cout << "Running 3D with Nitsche method enabled" << std::endl;
+              NavierStokesProjection<3> test(data);
+              test.run(data.verbose, data.output_interval);
+            }
+          else
+            {
+              std::cout << "Running 3D pure fluid solver (no FSI)" << std::endl;
+              NavierStokesProjection<3> test(data);
+              test.run(data.verbose, data.output_interval);
+            }
         }
       else
         {
-          std::cout << "Running pure fluid solver (no FSI)" << std::endl;
-          NavierStokesProjection<2> test(data);
-          test.run(data.verbose, data.output_interval);
+          AssertThrow(false, ExcMessage("Unsupported dimension: only 2 or 3 allowed"));
         }
     }
   catch (std::exception &exc)

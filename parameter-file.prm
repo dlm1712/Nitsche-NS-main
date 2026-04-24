@@ -1,6 +1,7 @@
 # Parameter file for step-35 with FSI capabilities and mesh generation options
 
 set Method_Form = rotational
+set dimension = 3
 
 subsection Physical data
   set initial_time = 0.
@@ -43,24 +44,28 @@ subsection Boundary conditions
   set Boundary 1 type = zero
   set Boundary 1 velocity X = 1.0
   set Boundary 1 velocity Y = 0.0
+  set Boundary 1 velocity Z = 0.0
   set Boundary 1 max velocity = 1.5
 
   # Boundary 2: right wall (x=length)
   set Boundary 2 type = outflow
   set Boundary 2 velocity X = 0.0
   set Boundary 2 velocity Y = 0.0
+  set Boundary 2 velocity Z = 0.0
   set Boundary 2 max velocity = 2.0
 
   # Boundary 3: bottom wall (y=0)
   set Boundary 3 type = zero
   set Boundary 3 velocity X = 0.0
   set Boundary 3 velocity Y = 0.0
+  set Boundary 3 velocity Z = 0.0
   set Boundary 3 max velocity = 1.5
 
   # Boundary 4: top wall (y=width)
   set Boundary 4 type = zero
   set Boundary 4 velocity X = 0.0
   set Boundary 4 velocity Y = 0.0
+  set Boundary 4 velocity Z = 0.0
   set Boundary 4 max velocity = 11.5
 end
 
@@ -81,7 +86,7 @@ subsection Immersed solid
   set Nitsche beta          = 100.0
   set Solid refinement      = 3
   set Solid angular velocity = 6.2831853  # 2*pi rad/s
-  set Solid center          = 0.0, 0.0
+  set Solid center          = 0.0, 0.0， 0.0
   set Solid radius          = 0.1
   
   # Additional parameters from step-35-ibm.cc
@@ -91,6 +96,7 @@ subsection Immersed solid
   set Motion type           = prescribed
   set Amplitude X           = 0.0
   set Amplitude Y           = 0.0
+  set Amplitude Z           = 0.0
   set Frequency             = 1.0
   set Rotation speed        = 0.0
   set Solid density         = 1.0
@@ -104,6 +110,7 @@ subsection Initial conditions
   # For constant velocity initialization
   set Initial velocity X = 0.0
   set Initial velocity Y = 0.0
+  set Initial velocity Z = 0.0
   
   # For parabolic velocity initialization
   set Initial max velocity = 1.5
