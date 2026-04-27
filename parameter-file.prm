@@ -1,12 +1,23 @@
-# Parameter file for step-35 with FSI capabilities and mesh generation options
+# Parameter file for IBM/Nitsche FSI solver
+# This file is used by the NavierStokesProjection and NavierStokesIBM classes
 
-set Method_Form = rotational
-set dimension = 3
+set Method_Form           = rotational   # rotational or standard
+set Dimension             = 2            # 2 or 3
+set verbose               = true
+set output_interval       = 1
+set output_ibm_solid      = false        # Save IBM boundary point files (only for IBM)
+set FSI method            = ibm          # off, ibm, nitsche
+
+# Nitsche-specific parameters (only used when FSI method = nitsche)
+set use_nitsche           = false        # legacy, use FSI method instead
+set nitsche_beta          = 10.0         # penalty parameter β
+set nitsche_gamma         = 1.0          # stability parameter γ
+set solid_refinement      = 0            # solid mesh refinement level
 
 subsection Physical data
-  set initial_time = 0.
-  set final_time   = 0.1
-  set Reynolds     = 100.
+  set initial_time = 0.0
+  set final_time   = 1.0
+  set Reynolds     = 1.0
 end
 
 subsection Time step data
@@ -14,59 +25,20 @@ subsection Time step data
 end
 
 subsection Space discretization
-  set n_of_refines       = 2
+  set n_of_refines       = 0
   set pressure_fe_degree = 1
-  set mesh_filename      = ../nsbench2.inp
+  set mesh_filename      = nsbench2.inp   # only used if Mesh generation type = file
 end
 
 subsection Mesh generation
-  # Options: "file" (read from mesh file) or "channel" (generate channel geometry)
-  set Mesh generation type = file
-  
-  # Channel geometry parameters
-  set Channel length = 25.0
-  set Channel width  = 4.1
-  set Channel height = 1.0  # Only used for 3D
-  
-  # Initial refinement for channel mesh (before global refinement)
-  set Channel refinement = 0
-
-  # Anisotropic refinement: number of cells in each direction
-  # For 2D: set Channel cells X and Channel cells Y
-  # For 3D: also set Channel cells Z
-  set Channel cells X = 25     # More cells in x-direction (flow direction)
-  set Channel cells Y = 4      # Fewer cells in y-direction
-  set Channel cells Z = 1      # Only used for 3D
-end
-
-subsection Boundary conditions
-  # Boundary 1: left wall (x=0)
-  set Boundary 1 type = zero
-  set Boundary 1 velocity X = 1.0
-  set Boundary 1 velocity Y = 0.0
-  set Boundary 1 velocity Z = 0.0
-  set Boundary 1 max velocity = 1.5
-
-  # Boundary 2: right wall (x=length)
-  set Boundary 2 type = outflow
-  set Boundary 2 velocity X = 0.0
-  set Boundary 2 velocity Y = 0.0
-  set Boundary 2 velocity Z = 0.0
-  set Boundary 2 max velocity = 2.0
-
-  # Boundary 3: bottom wall (y=0)
-  set Boundary 3 type = zero
-  set Boundary 3 velocity X = 0.0
-  set Boundary 3 velocity Y = 0.0
-  set Boundary 3 velocity Z = 0.0
-  set Boundary 3 max velocity = 1.5
-
-  # Boundary 4: top wall (y=width)
-  set Boundary 4 type = zero
-  set Boundary 4 velocity X = 0.0
-  set Boundary 4 velocity Y = 0.0
-  set Boundary 4 velocity Z = 0.0
-  set Boundary 4 max velocity = 11.5
+  set Mesh generation type = channel             # file or channel
+  set Channel length       = 10.0                # x-direction length
+  set Channel width        = 4.1                 # y-direction width
+  set Channel height       = 1.0                 # z-direction height (3D only)
+  set Channel refinement   = 0
+  set Channel cells X      = 1
+  set Channel cells Y      = 1
+  set Channel cells Z      = 1                   # 3D only
 end
 
 subsection Data solve velocity
@@ -78,54 +50,85 @@ subsection Data solve velocity
   set update_prec    = 15
 end
 
-set verbose = true
-set output_interval = 5
-
-subsection Immersed solid
-  set Use Nitsche method    = true
-  set Nitsche beta          = 100.0
-  set Solid refinement      = 3
-  set Solid angular velocity = 6.2831853  # 2*pi rad/s
-  set Solid center          = 0.0, 0.0， 0.0
-  set Solid radius          = 0.1
-  
-  # Additional parameters from step-35-ibm.cc
-  set Solid geometry type   = circle
-  set Solid width           = 0.5
-  set Solid height          = 0.3
-  set Motion type           = prescribed
-  set Amplitude X           = 0.0
-  set Amplitude Y           = 0.0
-  set Amplitude Z           = 0.0
-  set Frequency             = 1.0
-  set Rotation speed        = 0.0
-  set Solid density         = 1.0
-  set Relaxation factor     = 1.0
-end
-
 subsection Initial conditions
-  # Options: "zero" (zero velocity), "constant" (constant velocity), "parabolic" (parabolic profile)
-  set Initial velocity type = parabolic
-  
-  # For constant velocity initialization
-  set Initial velocity X = 0.0
-  set Initial velocity Y = 0.0
-  set Initial velocity Z = 0.0
-  
-  # For parabolic velocity initialization
-  set Initial max velocity = 1.5
+  set Initial velocity type = parabolic            # zero, constant, parabolic
+  set Initial velocity X    = 0.0
+  set Initial velocity Y    = 0.0
+  set Initial velocity Z    = 0.0
+  set Initial max velocity  = 1.5
 end
 
-subsection Sponge layer
-  # Enable/disable sponge layer damping at outlet
-  set Use sponge layer  = false
-  
-  # X-coordinate where sponge layer starts (typically a few units before outlet)
-  set Sponge x start    = 20.0
-  
-  # Maximum damping coefficient sigma_max
-  set Sponge strength   = 10.0
-  
-  # Order of damping profile: 1=linear, 2=quadratic, 3=cubic
-  set Sponge order      = 2
+subsection Boundary conditions
+  subsection Inlet (ID 1)
+    set Type                 = parabolic          # constant, parabolic, function
+    set Constant velocity U  = 1.0
+    set Constant velocity V  = 0.0
+    set Constant velocity W  = 0.0
+    set Parabolic max velocity = 1.5
+    set Function expression U = "4*1.5*y*(4.1-y)/(4.1*4.1)"
+    set Function expression V = "0"
+    set Function expression W = "0"
+  end
+
+  subsection Bottom wall (ID 3)
+    set Type              = no_slip               # no_slip, moving, symmetric
+    set Moving velocity U = "0"
+    set Moving velocity V = "0"
+    set Moving velocity W = "0"
+  end
+
+  subsection Top wall (ID 4)
+    set Type              = no_slip
+    set Moving velocity U = "0"
+    set Moving velocity V = "0"
+    set Moving velocity W = "0"
+  end
+
+  subsection Front wall (ID 5)   # 3D only
+    set Type              = no_slip
+    set Moving velocity U = "0"
+    set Moving velocity V = "0"
+    set Moving velocity W = "0"
+  end
+
+  subsection Back wall (ID 6)    # 3D only
+    set Type              = no_slip
+    set Moving velocity U = "0"
+    set Moving velocity V = "0"
+    set Moving velocity W = "0"
+  end
+end
+
+subsection IBM
+  set Geometry type            = circle           # circle, rectangle, from_file
+  set Solid Point file         = mosquito.dat     # required if Geometry type = from_file
+  set Radius                   = 0.05
+  set Width                    = 0.1
+  set Height                   = 0.05
+  set Center X                 = 0.2
+  set Center Y                 = 0.2
+  set Center Z                 = 0.2
+  set Number of Lagrangian points = 64
+  set Motion type              = static           # static, prescribed, fsi_coupled
+  set Amplitude X              = 0.0
+  set Amplitude Y              = 0.0
+  set Amplitude Z              = 0.0
+  set Frequency                = 1.0
+  set Rotation speed           = 0.0
+  set Fluid density            = 1.0
+  set Solid density            = 1.0
+  set Relaxation factor        = 1.0
+  set Delta type               = peskin           # peskin, fem, dual
+end
+
+subsection Rigid body direct forcing
+  set Fluid density        = 1.0
+  set Relaxation factor    = 1.0
+  set Weight method        = grid_size           # grid_size, delta_support, lagrangian_spacing, integrated
+  set Use PID control      = false               # enable PID controller
+  set Kp                   = 1.0
+  set Ki                   = 0.0
+  set Kd                   = 0.0
+  set Integral limit       = 1e10
+  set Integral time constant = 1e10
 end

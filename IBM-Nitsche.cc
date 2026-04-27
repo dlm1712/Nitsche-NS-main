@@ -78,6 +78,7 @@
 #include <iostream>
 #include <memory>
 #include <set>
+#include <sstream>
 
 // Finally this is as in all previous programs:
 namespace Step35
@@ -749,7 +750,7 @@ namespace Step35
       double mass;
       double moment_of_inertia;       // 标量，用于 2D
       Tensor<2, dim> inertia_tensor;  // 张量，用于 3D
-      Tensor<2, dim> inverse_moment_of_inertia; // Inverse of moment of inertia
+      Tensor<2, dim> inverse_inertia_tensor;
       bool   couple_translation_x;
       bool   couple_translation_y;
       bool   couple_translation_z;
@@ -770,7 +771,7 @@ namespace Step35
       : mass(1.0)
       , moment_of_inertia(1.0)
       , inertia_tensor(unit_symmetric_tensor<dim>())
-      , inverse_moment_of_inertia(unit_symmetric_tensor<dim>())
+      , inverse_inertia_tensor(unit_symmetric_tensor<dim>())
       , couple_translation_x(true)
       , couple_translation_y(true)
       , couple_translation_z(true)
@@ -914,14 +915,13 @@ namespace Step35
                                       orientation[2]*orientation[2] + 
                                       orientation[3]*orientation[3]);
               
-              if (norm > 1e-10) {
-                  for (unsigned int i = 0; i < 4; ++i)
-                      orientation[i] /= norm;
+              if (norm < 1e-12) {
+                  orientation = {1.0, 0.0, 0.0, 0.0};
               }
               else
                 {
-                  // Reset to identity if numerical collapse occurs
-                  orientation = {1.0, 0.0, 0.0, 0.0};
+                  for (unsigned int i = 0; i < 4; ++i)
+                   orientation[i] /= norm;
                 }
               // --- 3D 修正结束 ---
             }
@@ -1384,6 +1384,7 @@ namespace Step35
       double mass;
       double moment_of_inertia;
       Tensor<2, dim> inertia_tensor;
+      Tensor<2, dim> inverse_inertia_tensor;
       double density;
 
       std::unique_ptr<SolidModelBase<dim>>  solid_model;
@@ -1951,7 +1952,8 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
       // Initial condition parameters
       std::string  initial_velocity_type;  // "zero", "constant", or "parabolic"
       double       initial_velocity_x;     // X-component for constant initial velocity
-      double       initial_velocity_y;     // Y-component for constant initial velocity
+      double       initial_velocity_y;
+      double       initial_velocity_z;     // Z-component for constant initial velocity
       double       initial_max_velocity;   // Max velocity for parabolic initial profile
 
       // Inlet boundary condition parameters (Boundary ID 1)
@@ -2044,6 +2046,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
       , initial_velocity_type("parabolic")
       , initial_velocity_x(0.0)
       , initial_velocity_y(0.0)
+      , initial_velocity_z(0.0)
       , initial_max_velocity(1.5)
       , bc_inlet_type("parabolic")
       , bc_inlet_constant_u(1.0)
@@ -2229,6 +2232,10 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
                           "0.0",
                           Patterns::Double(),
                           "Y-component for constant initial velocity");
+        prm.declare_entry("Initial velocity Z",
+                          "0.0",
+                          Patterns::Double(),
+                          "Z-component for constant initial velocity");
         prm.declare_entry("Initial max velocity",
                           "1.5",
                           Patterns::Double(0.),
@@ -2375,7 +2382,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
                           "circle",
                           Patterns::Selection("circle|rectangle|from_file"),
                           "Type of immersed solid geometry");
-        prm.declare_entry("Point file", "", Patterns::FileName(),
+        prm.declare_entry("Solid Point file", "", Patterns::FileName(),
                     "File containing Lagrangian surface points (x y [z] per line)");
         prm.declare_entry("Radius",
                           "0.05",
@@ -2524,6 +2531,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
         initial_velocity_type = prm.get("Initial velocity type");
         initial_velocity_x = prm.get_double("Initial velocity X");
         initial_velocity_y = prm.get_double("Initial velocity Y");
+        initial_velocity_z = prm.get_double("Initial velocity Z");
         initial_max_velocity = prm.get_double("Initial max velocity");
       }
       prm.leave_subsection();
@@ -2587,17 +2595,19 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
       prm.enter_subsection("IBM");
       {
         solid_geometry_type    = prm.get("Geometry type");
+        solid_point_filename   = prm.get("Solid Point file");
         solid_radius           = prm.get_double("Radius");
         solid_width            = prm.get_double("Width");
         solid_height           = prm.get_double("Height");
         solid_center[0]        = prm.get_double("Center X");
         solid_center[1]        = prm.get_double("Center Y");
         if (dim == 3)
-        solid_center[2] = prm.get_double("Center Z");
+          solid_center[2] = prm.get_double("Center Z");
         solid_n_points         = prm.get_integer("Number of Lagrangian points");
         solid_motion_type      = prm.get("Motion type");
         solid_amplitude_x      = prm.get_double("Amplitude X");
         solid_amplitude_y      = prm.get_double("Amplitude Y");
+        solid_amplitude_z      = prm.get_double("Amplitude Z");
         solid_frequency        = prm.get_double("Frequency");
         solid_rotation_speed   = prm.get_double("Rotation speed");
         ibm_fluid_density      = prm.get_double("Fluid density");
@@ -2725,6 +2735,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
                const std::string &type = "parabolic",
                const double vx = 0.0,
                const double vy = 0.0,
+               const double vz = 0.0,
                const double max_vel = 1.5,
                const double channel_width = 4.1);
 
@@ -2739,6 +2750,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
       std::string velocity_type;
       double velocity_x;
       double velocity_y;
+      double velocity_z;
       double max_velocity;
       double channel_H;
     };
@@ -2755,6 +2767,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
       , velocity_type(type)
       , velocity_x(vx)
       , velocity_y(vy)
+      , velocity_z(vz)
       , max_velocity(max_vel)
       , channel_H(channel_width)
     {}
@@ -2787,6 +2800,8 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
             return velocity_x;
           else if (this->comp == 1)
             return velocity_y;
+          else if (this->comp == 2) // <--- 修改：返回存储的 velocity_z
+            return velocity_z;
           else
             return 0.0;
         }
@@ -3200,6 +3215,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
                 data.initial_velocity_type,
                 data.initial_velocity_x,
                 data.initial_velocity_y,
+                data.initial_velocity_z,
                 data.initial_max_velocity,
                 data.channel_width)
     , fe_velocity(deg + 1)
@@ -4425,7 +4441,7 @@ Tensor<1, dim> ImmersedSolid<dim>::compute_total_torque() const
     else if (ibm_data.solid_geometry_type == "rectangle")
       geometry = std::make_unique<IBM::RectangleGeometry<dim>>(
         ibm_data.solid_width, ibm_data.solid_height);
-    else if (ibm_data.solid_geometry_type == "file")
+    else if (ibm_data.solid_geometry_type == "from_file")
       geometry = std::make_unique<IBM::FileGeometry<dim>>(ibm_data.solid_point_filename);
     else
       geometry = std::make_unique<IBM::CircleGeometry<dim>>(ibm_data.solid_radius);
@@ -4861,7 +4877,7 @@ int main(int argc, char *argv[])
       using namespace Step35;
 
       // Determine parameter file name from command line or use default
-      std::string parameter_filename = "ibm-default.prm";
+      std::string parameter_filename = "parameter-file.prm";
       if (argc > 1)
         {
           parameter_filename = argv[1];
